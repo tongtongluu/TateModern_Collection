@@ -1,0 +1,10 @@
+Feature Name,Data Definition
+id,Unique id assigned to each artist
+name,Artist name
+gender,Artist gender
+dates,Unparsed birth date and death date associated with artist
+yearOfBirth,Year of artist birth
+yearOfDeath,Year of artist death
+placeofBirth,"City, Country of Birth"
+placeofDeath,"City, Country of Death"
+url,Tate URL associated with artist

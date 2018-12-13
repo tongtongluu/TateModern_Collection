@@ -1,0 +1,21 @@
+Feature Name,Data Definition
+id,unique id identifying each piece of artwork
+accession_number,unique number assigned when artwork was acquired by museum
+artist,Artist associated with artwork
+artistRole,The role the artists played in artwork production
+artistId,Artist ID corresponding to artist dataset
+title,The title of artwork
+dateText,Year of artwork (as labeled on artwork)
+medium,The medium in which the artwork was produced
+creditLine,Information on acquisition of artwork
+year,Year of artwork (corresponds to dateText)
+acquisitionYear,Year artwork was acquired
+dimensions,Unparsed string describing dimension of artwork
+width,Width of artwork
+height,Height of artwork
+depth,Depth of artwork
+units,Dimensional units of artwork given in previous fields
+inscription,Any inscription included in artwork
+thumnailCopyright,Organization which holds copyright to artwork
+thumbnailUrl,URL of thumbnail image stored on Tate servers
+url,URL of artwork image stored on Tate servers

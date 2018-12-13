@@ -1,0 +1,469 @@
+---
+title: "Expansion and Inventory Consultation of Tate Museum"
+author: "Luella Qinglu Lu and Wilson Mui"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r install, echo = FALSE,include = FALSE}
+#install.packages(c("dplyr","ggplot2","data.table","tidyr","plotly","class", "knitr", "googleVis", "kableExtra"), dependencies = TRUE, repos = "http://cran.us.r-project.org")
+```
+
+# **Introduction**
+[Recorded Presentation](https://www.youtube.com/watch?v=LCgu_2UDD8U)<br/>
+## Executive Summary
+Tate is a museum that houses the United Kingdom's national collection of British art, and international modern and contemporary art. Recently, Tate announced an urgent need for more space. Therefore, for this project we are acting in the role of consultants who are helping the museum inventory its collection in preparation for a possible expansion. Our initial task as consultants is to explore and understand the nature of the artists and the artwork that are available at Tate. Exploring our dataset will help us understand what Tate has, how they should expand their collection, how to diversify the artists and art medium, as well as what types of artwork they can feasibly adde to their collection space-wise.
+
+```{r load_packages, echo = FALSE,include = FALSE}
+###in this report, we will install necessary packages, including dplyr, tidyr, ggplot,data.table, class,knitr,googleVis
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+library(tidyr)
+library(plotly)
+library(class)
+library(knitr)
+library(googleVis)
+library(kableExtra)
+library(DT)
+
+opts_chunk$set(echo = TRUE)
+```
+
+## Our datasets
+The two datasets include one dataset that has metadata for around 70,000 artworks that Tate owns or jointly owns with the National Galleries of Scotland, and a dataset with 3,500 associated artists. Some of the artwork attributes contained in this dataset that we used are the country of origin, artwork medium, size, year, and artist. Some of the artist attributes that we used included, year, artworks associated with them, and gender. A full data dictionary description can be seen below.
+
+*https://www.kaggle.com/rtatman/the-tate-collection
+<br/>
+*https://www.kaggle.com/vivianapinto/the-tate-artists
+
+```{r load_data, echo = F}
+tate_artists <- read.csv("the-tate-artists.csv")
+tate_collection <- read.csv("the-tate-collection.csv", sep = ";")
+
+artist_dictionary <- read.csv("artwork_dictionary.csv")
+artwork_dictionary <- read.csv("artist_dictionary.csv")
+
+kable(artwork_dictionary, caption = "Artwork Data Dictionary") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                font_size = 12,
+                full_width = F, 
+                position = "left")
+
+kable(artist_dictionary, caption = "Artist Data Dictionary") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                font_size = 12,
+                full_width = F, 
+                position = "left")
+
+```
+
+
+## Data Clean and Data Transformation
+Before starting our analysis, we need to clean both our artwork and artist data. Our data cleaning process includes:
+
+* Removing non-UTF-8 characters from datasets
+* Normalizing empty data fields to be uniform
+* Parsing city,country field into their separate components
+* Combining length and width into an area field
+* Filled missing 'year' data with a simple algorithm of using 3/4 of the artist age as the year of the artwork. This is a subjective choice by our consulting team.
+
+After our data has been cleaned we merged our dataset, and save it as an r-formatted .rdata file
+
+```{r clean_data, warning = FALSE, echo = F}
+# remove strange characters from collection dataset
+tate_collection$artist <- iconv(tate_collection$artist, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+tate_collection$title <- iconv(tate_collection$title, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+tate_collection$thumbnailCopyright <- gsub("^C ", "", tate_collection$thumbnailCopyright)
+tate_collection$thumbnailCopyright <- iconv(tate_collection$thumbnailCopyright, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+tate_collection$dateText <- iconv(tate_collection$dateText, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+
+# normalize titles with no title to NA
+tate_collection[tate_collection$title %like% "\\[no title|\\[blank]|\\[title not known|Blank|untitled|Untitled", "title"] <- NA
+
+# remove strange characters from artist dataset
+tate_artists$dates <- iconv(tate_artists$dates, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+tate_artists$placeOfBirth <- iconv(tate_artists$placeOfBirth, from = 'UTF-8', to = 'ASCII//TRANSLIT')
+tate_artists$dates <- gsub("born |established |active ", "", tate_artists$dates)
+tate_artists$gender[tate_artists$gender == ""] <- NA
+# separate city, country column into their respective parts
+tate_artists <- separate(data = tate_artists, col = placeOfBirth, into = c("city", "country"), sep = ",", remove = FALSE)
+# create dimensions column
+tate_collection$area <- tate_collection$width * tate_collection$height
+
+```
+
+```{r merge, warning = FALSE, echo = F}
+#merge two datasets into one called tate
+tate <- merge(tate_artists, tate_collection, all = TRUE, by.x = "id", by.y = "artistId")
+
+# drop columns that are unused
+tate <- subset(tate, select = -c(url.x, url.y, thumbnailUrl, thumbnailCopyright))
+
+# If 'year' feature is missing, we use a simple algorithm of 3/4 of the age of the artist as the year of artwork
+tate$year[which(is.na(tate$year) & !is.na(tate$yearOfBirth) & !is.na(tate$yearOfDeath))] <- round(tate$yearOfBirth *.25 + tate$yearOfDeath * .75, 0)
+```
+
+Here is a subset sample of our cleaned dataset:
+
+```{r tate_table, echo = F}
+kable(tate[1:200, c(2:10, 15:17, 19:23)]) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), font_size = 10) %>%
+  scroll_box(width = "100%", height = "300px")
+```
+
+```{r save, echo = F}
+save(tate_artists, file = "tate_artists_clean.rdata")
+save(tate_collection, file = "tate_collection_clean.rdata")
+save(tate, file = "tate_clean.rdata")
+```
+<br/>
+
+# **Data Exploration and Analysis** 
+We began by performing some exploratory data analysis on the artists in our datset. We attempted to answer some general questions shown below. This then led to some interesting findings which guided our hypothesis tests which helped inform our recommendation that although the Tate Museum has been acquiring a higher percentage of artwork by female artists, it is not closing the gap nearly fast enough. We then continued to do exploratory data analysis on the artwork in hopes of finding a correlation that can help us in identifying forms of artwork that are better represented by female artists.
+
+## <font color= "green"> PART I: ARTISTS EXPLORATION </font> 
+
+
+```{r artist_exploration, echo = F}
+artist_unique <- unique(tate$artist) %>% length()
+art_begin <- min(tate$year, na.rm = TRUE)
+art_end <- max(tate$year, na.rm = TRUE)
+art_acquire_begin <- min(tate$acquisitionYear, na.rm = TRUE)
+
+num_artwork <- nrow(tate_collection)
+```
+
+### *How many artists and art pieces have appeared in Tate Modern?*
+In our exploratory phase we found that altogether __`r artist_unique` artists__ are represented at Tate, totalling __`r num_artwork`__ pieces of art. The art acquisiton started in __`r art_acquire_begin`__ up until __2013__ (this dataset only shows records until 2013). The era of the artwork ranges from __`r art_begin` to `r art_end`__. Tate Modern is arguably regarded as one of the biggest contemporary art institution in the world.
+
+```{r, echo = F}
+top_artists <- tate %>% group_by(artist) %>% dplyr::summarize(count = n()) %>% arrange(desc(count)) %>% filter(artist != "") %>% head(10)
+
+top_artist <- top_artists[1,1]
+top_artwork <- top_artists[1, 2]
+
+```
+
+### *Who are the top 10 most represented artists at Tate?*
+The top 10 most represented artists are shown below, with __`r top_artist`__ leading the way with __`r top_artwork`__ art pieces. The artwork from __`r top_artist`__ far exceeds any other artist, and is nearly 20 times as much as even the 10th most represented artist, __`r top_artists[10, 1]`__. It seems that Tate has obvious preferances in its choice of artists and artwork. Recognizing this preferance can help inform us on how to expand Tate's art collection in the future. The summary of artist representation shows how bias the Tate collection is, and can help motivate an move towards diversification.
+
+```{r top_artists, echo = F}
+kable(top_artists) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                font_size = 12,
+                full_width = F, 
+                position = "left")
+```
+
+```{r explore_gender, echo = F, warning = F}
+Gendergap_all <- tate %>%
+  group_by(acquisitionYear,gender) %>%
+  summarize(count = n())
+
+
+males <- unname(summary(as.factor(as.character(tate$gender))))[2]
+females <- unname(summary(as.factor(as.character(tate$gender))))[1]
+
+```
+### *What is the gender distribution of the artists at Tate?*
+The bias in artist representation then led us to question the gender distribution of artists. What we found was a huge gap between male and female artists. __Male artists contributed `r males` pieces of the artwork__, while female artist account for only __`r females` pieces of art__. This shocking descrepancy motivated a deeper look at this gender difference.
+
+```{r summary_gender, echo = F, warning = F}
+summary(as.factor(as.character(tate$gender)))
+```
+
+This led us to question whethere this gap between male and female art acquisition was growing or shrinking throughout the years. To investigate this we found the number of artworks acquired per year (acsquisition year), and graphed it corresponding to gender of the artist. The graph below shows the results of this investigation. (We limited our acquisitiony year to the 20th century, because we found the data prior to 1900 to be very incomplete).
+
+```{r gendergap_analysis, echo = F, warning = F}
+tate_20thCentury <- subset(tate, tate$gender == c("Male","Female") & tate$acquisitionYear >= 1900)
+
+Gendergap <- tate_20thCentury %>%
+  group_by(acquisitionYear,gender) %>%
+  summarize(count = n())
+
+ggplot(Gendergap,aes(acquisitionYear,log(count), colour=gender)) +
+  geom_line(linetype="dotted",size= 1) +
+  xlab("Aquisition Year") +
+  ylab("Artwork Acquired") +
+  ggtitle("The Difference in Gender of Acquired Art by Year")
+
+```
+
+### *Is the gendergap growing or decreasing since the beginning of the 20th century?*
+In our plot above, we see an upward trend in the number of art pieces acquired throughout the years, but it is not immediately clear whether Tate is closing the gap between male and female artwork acquired, as artwork from both genders have grown in the 20th century. To investigate this further we calculated the difference in artwork acquired as well as the percentage difference in art acquisition by gender, and set our hypothesis that...
+
+### *HYPOTHESIS: From year 1900 to 2013, the gap of male and female artists has been closing*
+The two graphs below tell us an interesting story. __The number of male artwork acquired continues to out number female artwork, and is in fact growing.__ However, __female artwork is actually growing as a percentage of all newly acquired art.__
+
+We found that since 1900, there has been a slight increase in the percent of female artwork acquired each year. The percent increase (or decrease of male dominance) is however, a slight 0.261%. If we consider the fact that in 1900, male artwork accounted for 6 times as much as female artwork, this slight increase is simply not happening fast enough. __Our conclusion is therefore, that more effort needs to be made to procure female artwork if Tate hopes to create a more diverse representation of artists.__
+
+```{r gender_difference, echo = F}
+#Form a new dataframe Gendergap_new 
+Gendergap_20thCentury_male<-subset(Gendergap,gender=="Male")
+Gendergap_20thCentury_female<-subset(Gendergap,gender=="Female")
+Gendergap_new <- merge(x=Gendergap_20thCentury_male, y = Gendergap_20thCentury_female, by.x = "acquisitionYear",by.y = "acquisitionYear", all=T)
+Gendergap_new$count.x[is.na(Gendergap_new$count.x)]<-0
+Gendergap_new$count.y[is.na(Gendergap_new$count.y)]<-0
+Gendergap_new<-mutate (Gendergap_new,Difference=(count.x-count.y), DifferenceOfPercentage=((count.x-count.y)/(count.x+count.y)))
+
+#difference of the absolute number
+ggplot(Gendergap_new,aes(acquisitionYear,Difference)) +
+  geom_line(linetype="dotted",size= 1) +
+  xlab("Aquisition Year") +
+  ylab("Difference in count of male and female art acquired ") +
+  ggtitle("The change of Aquisition Number Between Genders") +
+  geom_smooth(method=lm)
+
+
+#difference in the percentage
+ggplot(Gendergap_new,aes(acquisitionYear,DifferenceOfPercentage)) +
+  geom_line(linetype="dotted",size= 1) +
+  xlab("Aquisition Year") +
+  ylab("Difference of Male and Female artists for Their Aquisition Number ") +
+  ggtitle("The change of Aquisition Percentage Between Genders") +
+  geom_smooth(method=lm,color="red",size=2)
+```
+
+```{r}
+lm.differenceOfPercentage.years<-lm(Gendergap_new$DifferenceOfPercentage~Gendergap_new$acquisitionYear)
+anova(lm.differenceOfPercentage.years)
+```
+
+## <font color= "green"> PART II: ARTWORK EXPLORATION </font> 
+
+```{r medium_analysis, echo = F}
+# Determine the top 5 media of choice
+medium <- tate %>% group_by(medium) %>% dplyr::summarize(count = n()) %>% arrange(desc(count)) %>% filter(medium != "")
+top_medium <- unname(head(medium, 10))
+colnames(top_medium) <- c("medium", "count")
+
+save("top_medium", file = "top_medium.rdata")
+```
+
+### *What are the preferred media of choice for artwork at Tate?*
+The most common art media at Tate by far was __`r top_medium[1,1]`__, accounting for __`r top_medium[1,2]`__ pieces. While the second highest, __`r top_medium[2,1]`__ represented only __`r top_medium[2,2]`__, which is only one fifth of the latter. To our surprise, __`r top_medium[10,1]`__, a relatively a new art form, was within the top 10 with __`r top_medium[10,2]`__ pieces at Tate. Since the media surface types are so specific, we would like to find broader range categories (i.e. on paper, on wood, etc.)
+
+```{r top_medium, echo = F}
+kable(top_medium) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                font_size = 12,
+                full_width = F, 
+                position = "left")
+```
+But we felt the media type was too specific, in fact there were __`r nrow(medium)`__ unique types of media represented at Tate, far too many for reasonable regression. Instead we felt splitting the artwork to the material and the surface would give us a better understanding of the inventory, which we believe could be used for further analysis linking to gender (see last section). So we parsed the media field into materials and surface. The table of different surfaces are shown below.
+
+```{r medium_split, echo = F, warning = F}
+# A deeper look at broader categories of material media, that is, what was the art media
+##########
+
+material_media <- data.frame("medium" = substring(tate$medium, 1, regexpr("on ", tate$medium) -1)) %>% 
+  group_by(medium) %>% 
+  dplyr::summarize(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  filter(medium != "")
+
+top_material <- head(material_media, 10)
+
+save("top_material", file = "top_material.rdata")
+
+# table these media results
+x <- as.character(top_material$medium)
+y <- as.numeric(top_material$count)
+data <- data.frame(x, y)
+colnames(data) <- c("material", "count")
+
+# plot the material
+p <- plot_ly(data, x = ~x, y = ~y, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5))) %>%
+  layout(title = "Top materials of artwork in Tate",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+
+p %>% layout()
+
+kable(data) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 12,
+                full_width = F,
+                position = "left")
+
+###########
+
+###########
+# divide media with surface
+surface_media <- data.frame("medium" = substring(tate$medium, regexpr("on ", tate$medium) +0)) %>% 
+  group_by(medium) %>% dplyr::summarize(count = n()) %>% 
+  arrange(desc(count)) %>% filter(medium != "")
+
+top_surface <- head(surface_media, 10)
+
+# table these surface results
+x <- as.character(top_surface$medium)
+y <- as.numeric(top_surface$count)
+data <- data.frame(x, y)
+colnames(data) <- c("surface", "count")
+
+# plot the surface
+p <- plot_ly(data, x = ~x, y = ~y, type = 'bar',
+        marker = list(color = 'rgb(158,202,225)',
+                      line = list(color = 'rgb(8,48,107)',
+                                  width = 1.5))) %>%
+  layout(title = "Top surfaces of artwork in Tate",
+         xaxis = list(title = ""),
+         yaxis = list(title = ""))
+
+p %>% layout()
+
+  
+kable(data) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                font_size = 12,
+                full_width = F,
+                position = "left")
+
+
+###########
+```
+
+
+```{r area_year, echo = F, warning = F}
+area_quant <- quantile(tate$area, probs = c(0, 0.25, 0.5, 0.75, 1), tate$area)
+year_quant <- quantile(tate$year, probs = c(0, 0.25, 0.5, 0.75, 1), na.rm = TRUE)
+
+```
+
+### *What are the dimension and year distributions of the artwork at Tate?*
+As we are consulting Tate museum on their expansion, the sizes of the artwork is of importance to us, since space limitations are a concern, as is the era of the artwork. The quantile distributions are shown below, and generally speaking our analysis showed that about half of our artwork is distributed before __`r unname(year_quant)[3]`__ and half after, and that the median artwork size was __`r format(unname(area_quant)[3], scientific = FALSE)`__ mm<sup>2</sup>.
+
+```{r year_density, echo = F, warning = F, plotly = TRUE}
+year_density <- ggplot(tate[tate$year >= 1700,], aes(year)) + 
+  geom_histogram(aes(y = ..density..), alpha = 0.9, fill = "#333333", binwidth = 1) + 
+  geom_density(fill = "#ff4d4d", alpha = 0.5) + 
+  theme(panel.background = element_rect(fill = '#ffffff')) + 
+  ggtitle("Histogram of artwork era (year of artwork)")
+
+
+year_density <- ggplotly(year_density, session = "knitr")
+year_density
+save(year_density, file = "year_density.rdata")
+```
+
+*Note:*This exploratory analysis of our artwork inventory led of us our next hypothesis. We wanted to consider the possibility of correlating certain artwork features to a specific artist gender (namely female). If we can build a model that correlates features to female artists we can then advise Tate to seek out artwork with those requirements to increase the gender diversity.
+
+### *HYPOTHESIS: There exists a correlation between the features we explored and gender of the artist*
+Before our data modeling we must transform our data to be used for machine learning. Because some of our categorical features (surface, media, country) have hundreds, if not thousands of different categories we have to reduce our categories to a reasonable size to output an interpretable result. Fortunately from our exploratory analysis above, we can see that the top 5 categories of these features account for roughly 85% to 90% of all our data. This then allows us to group the remaining categories into one group that we are calling 'other' (for reach feature).
+
+<br />
+```{r analysis_data, echo = FALSE}
+# Create Dataset for analysis, including factorizing featureset to be used for analysis
+analysis_data <- tate[, c( "year", "country", "medium", "area", "gender")]
+
+analysis_data$surface <- as.vector(substring(tate$medium, regexpr("on ", tate$medium) +0))
+analysis_data$media <- as.vector(substring(tate$medium, 1, regexpr("on ", tate$medium) -1))
+analysis_data <- subset(analysis_data, select = -medium)
+
+# If the artwork was on one medium (i.e. marble, plaster) both media and surface are given the value of the medium
+analysis_data <- analysis_data[!(analysis_data$media == "" & analysis_data$surface == ""), ]
+analysis_data <- analysis_data[!is.na(analysis_data$surface),]
+analysis_data$media[analysis_data$media == ""] <- analysis_data$surface[analysis_data$media == ""]
+
+# Remove rows that have no data in any of its columns
+analysis_data <- analysis_data[!is.na(analysis_data$country),]
+analysis_data <- analysis_data[!is.na(analysis_data$year),]
+analysis_data <- analysis_data[!is.na(analysis_data$area),]
+analysis_data <- analysis_data[!is.na(analysis_data$gender),]
+
+# Factorize variables to allow for regression
+analysis_data$country <- as.factor(analysis_data$country)
+analysis_data$surface <- as.factor(analysis_data$surface)
+analysis_data$media <- as.factor(analysis_data$media)
+
+```
+
+We created a function to do just that. The function 'category_reduce' takes our dataframe, the feature to reduce, and the number of categories we want for that resultant feature. We use this function to reduce "country," "media," and "surface" to the top 5 categories before our machine learning modeling.
+
+```{r}
+# Takes a dataframe and reduces the feature given by col_name to the top
+# num_cat number of categories.
+category_reduce <- function (data, col_name, num_cat = 5){
+
+  temp <- data %>% 
+    group_by_(col_name) %>% 
+    dplyr::summarize(count = n()) %>% 
+    arrange(desc(count)) %>% 
+    slice(1:num_cat)
+  
+  temp <- as.vector(temp[[1]])
+  
+  data <- data %>% 
+    mutate(temp_col = ifelse(!(data[[col_name]] %in% temp), 
+                             " Other", 
+                             as.character(data[[col_name]])))
+  
+  data[col_name] <- data$temp_col
+  data <- subset(data, select = -temp_col)
+
+  data[col_name] <- as.factor(data[[col_name]])
+  return(data)
+}
+```
+
+```{r reduce_vars, echo = F}
+country_reduce <- 5
+surface_reduce <- 10
+media_reduce <- 10
+```
+Because a number of our categorical features had hundreds if not thousands of categories, but were heavily skewed towards the top. The function above helps us reduce the categories within each categorical feature group (by grouping all the other items as 'other') to a managable level before we used it to train our model Generalized Linear Model. We decided a reduction to the top __`r country_reduce` countries__, the top __`r surface_reduce` surfaces__, and the top __`r media_reduce` media__, before training our model. 
+
+```{r, echo = FALSE}
+# Reduce the country feature to the top 5 unique countries
+analysis_data <- category_reduce(analysis_data, "country", country_reduce)
+
+# Reduce the surface feature to the top 5 unique surfaces
+analysis_data <- category_reduce(analysis_data, "surface", surface_reduce)
+
+# Reduce the media feature to the top 5 unique media
+analysis_data <- category_reduce(analysis_data, "media", media_reduce)
+
+# save transformed and reduced dataframe for Shiny app
+save(analysis_data, file = "analysis_data.rdata")
+
+```
+
+The code below shows how we trained our model to detect gender based on 'country', 'year', 'surface', 'media', and artwork 'dimension.' With the results shown below.  
+```{r ml_gender}
+  model.fit <- glm(formula = gender ~ ., data = analysis_data, family = binomial())
+  prediction <- predict(model.fit, type = "response")
+  
+  female_art <- rep("Female", nrow(analysis_data))
+  female_art[prediction > .5] <- "Male"
+  female_art <- as.factor(female_art)
+  
+  truth <- as.character(analysis_data$gender)
+  predicted <- as.character(female_art)
+  
+  # truth <- c(temp)
+  # predicted <- c(temp2)
+  
+  # Count is the number of female artists that our model predicted correctly
+  count <- 0
+  for (i in 1:length(truth)){
+    if(truth[i] == "female" & predicted[i] == "female"){
+      count <- count + 1
+    }
+  }
+
+  summary(model.fit)
+```
+### Model Interpretation
+What the results of our model above tells us is that training a model to identify gender based off of the features we used above simply is not very effective in identifying female artists. Few of the features are statistically significant and when we did a cross-validation of the trained models accuracy we found that it made __`r count` predictions of female artists__. That is, there were no permutation of features sets where female artists were more represented in than male artists. The bottom line is that if we want to acquire more female artwork it is very difficult to seek it out through the medium of artwork, the country of origin, the year of production, or the size of the artwork (or any combination of those 4 things). The only way to cultivate gender diversity is to support more female artists.
+
+# **Conclusion: **
+In conclusion, what we found was that there exists a significant gender gap in the artwork that is represented at the Tate. And although the representation of female artists has grown, as a percentage of newly acquired art, it is simply growing too slowly (.2% per year) to reach 50/50 parity anytime soon. We also fonud that trying to identify female artwork through a number of combined features is impossible, therefore we could not simply focus on artwork that is say 'from the UK, in the 1870's, of a particular medium,' to find more female artists. Male artists, at least in the genre represented by Tate, is dominated by men.
+
+This leads us to conclude that if Tate wants to improve gender diversity in its art collection, it needs to make explicit attempts at finding female artists, and unapologetically acknowledge that, regardless of medium, origin, or era, they want female artwork.
